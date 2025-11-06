@@ -24,9 +24,28 @@ jobs:
     - name: Clippy check
       run: cargo clippy --all-targets --all-features -- -D warnings
 
-  unit-test:
+  tests:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
+    - name: Set up docker with 3 nodes
+      run: |
+        docker run -d --name scylla-node1 -p 8000:8000 scylladb/scylla --alternator-port=8000 --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1 --alternator-write-isolation=always 
+        docker run -d --name scylla-node2 -p 8001:8000 scylladb/scylla --alternator-port=8000 --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1 --alternator-write-isolation=always -e SCYLLA_SEEDS=scylla-node1 
+        docker run -d --name scylla-node3 -p 8002:8000 scylladb/scylla --alternator-port=8000 --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1 --alternator-write-isolation=always -e SCYLLA_SEEDS=scylla-node1  
+        
+        # Wait for Alternator to respond to HTTP requests
+        timeout=300
+        until curl -s http://localhost:8000/ >/dev/null 2>&1 || [ $timeout -le 0 ]; do
+        echo "Waiting for Alternator HTTP response..."
+        sleep 15
+        timeout=$((timeout-15))
+        done
+        
+        if [ $timeout -le 0 ]; then
+        echo "Alternator never became ready"
+        exit 1
+        fi
+        echo "Alternator is ready!"
     - name: Run tests
-      run: cargo test --lib --all-features
+      run: cargo test --all-features
